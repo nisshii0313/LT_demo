@@ -1,0 +1,68 @@
+- hosts:node-exporter
+  vars:
+    - password: prometheus
+  tasks:
+    - name: create prometheus group
+      group:
+        name: prometheus
+      become: true
+    - name: create prometheus user
+      user:
+        name: prometheus
+        group: prometheus
+        password: "{{ password | password_hash('sha512') }}"
+      become: true
+    - name: create prometheus directory
+      file:
+        path: /opt/prometheus
+        state: directory
+        owner: prometheus
+      become: true
+    - name: download prometheus node exporter
+      get_url:
+        url: https://github.com/prometheus/node_exporter/releases/download/v0.18.1/node_exporter-0.18.1.linux-amd64.tar.gz
+        dest: /opt/prometheus/
+      become: true
+      become_user: prometheus
+    - name: extract prometheus node exporter
+      unarchive:
+        remote_src: yes
+        src: /opt/prometheus/node_exporter-0.18.1.linux-amd64.tar.gz
+        dest: /opt/prometheus/
+      become: true
+      become_user: prometheus
+    - name: symlink
+      file:
+        path: /bin/node_exporter
+        state: link
+        src: /opt/prometheus/node_exporter-0.18.1.linux-amd64/node_exporter
+      become: true
+    - name: clean up
+      file:
+        state: absent
+        path: /opt/prometheus/node_exporter-0.18.1.linux-amd64.tar.gz
+      become: yes
+      become_user: prometheus
+    - name: setup systemd
+      blockinfile:
+        dest: /etc/systemd/system/node-exporter.service
+        create: yes
+        block: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          Requires=network.target
+          [Service]
+          Restart=always
+          WorkingDirectory=/opt/prometheus/node_exporter-0.18.1.linux-amd64
+          ExecStart=/bin/node_exporter
+          ExecReload=/bin/kill -HUP $MAINPID
+          [Install]
+          WantedBy=multi-user.target
+      become: true
+    - name: enable and start node-exporter
+      systemd:
+        daemon_reload: yes
+        enabled: yes
+        state: started
+        name: node-exporter.service
+      become: true
